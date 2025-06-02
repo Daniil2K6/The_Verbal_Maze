@@ -1,5 +1,5 @@
 @echo off
-g++ main.cpp -o word_maze.exe -municode -lgdi32 -luser32 -mwindows
+g++ main.cpp -o word_maze.exe -municode -lgdi32 -luser32 -mwindows -static -static-libgcc -static-libstdc++
 if %errorlevel% equ 0 (
     echo Компиляция успешна!
     echo Запуск программы...

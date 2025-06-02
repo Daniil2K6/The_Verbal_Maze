@@ -253,10 +253,69 @@ bool CheckWord(const std::wstring& word, size_t& foundIndex) {
     return false;
 }
 
+// Функция для рисования цветочка
+void DrawFlower(HDC hdc, int x, int y, COLORREF color) {
+    // Проверяем координаты
+    if (x < 0 || y < 0) return;
+
+    HBRUSH hFlowerBrush = CreateSolidBrush(color);
+    HPEN hPen = CreatePen(PS_SOLID, 1, RGB(std::min<int>(GetRValue(color) + 40, 255), 
+                                          std::min<int>(GetGValue(color) + 40, 255), 
+                                          std::min<int>(GetBValue(color) + 40, 255)));
+    
+    HBRUSH hOldBrush = (HBRUSH)SelectObject(hdc, hFlowerBrush);
+    HPEN hOldPen = (HPEN)SelectObject(hdc, hPen);
+
+    // Рисуем лепестки
+    const int petalSize = 6; // Уменьшаем размер цветочков
+    
+    // Рисуем лепестки крестом
+    Ellipse(hdc, x - petalSize, y - petalSize/2, x + petalSize, y + petalSize/2); // горизонтальный
+    Ellipse(hdc, x - petalSize/2, y - petalSize, x + petalSize/2, y + petalSize); // вертикальный
+
+    // Рисуем центр цветка
+    HBRUSH hCenterBrush = CreateSolidBrush(RGB(std::min<int>(GetRValue(color) + 60, 255), 
+                                               std::min<int>(GetGValue(color) + 60, 255), 
+                                               std::min<int>(GetBValue(color) + 60, 255)));
+    SelectObject(hdc, hCenterBrush);
+    Ellipse(hdc, x - petalSize/2, y - petalSize/2, x + petalSize/2, y + petalSize/2);
+
+    // Восстанавливаем контекст и очищаем ресурсы
+    SelectObject(hdc, hOldBrush);
+    SelectObject(hdc, hOldPen);
+    DeleteObject(hFlowerBrush);
+    DeleteObject(hCenterBrush);
+    DeleteObject(hPen);
+}
+
+// Функция для рисования декоративного фона
+void DrawDecorativeBackground(HDC hdc, RECT rect) {
+    // Создаем массив пастельных цветов
+    COLORREF colors[] = {
+        RGB(255, 182, 193),  // Светло-розовый
+        RGB(173, 216, 230),  // Светло-голубой
+        RGB(255, 255, 180)   // Светло-желтый
+    };
+
+    // Рисуем цветочки с большим интервалом
+    for (int i = rect.left + 15; i < rect.right; i += 35) {
+        for (int j = rect.top + 15; j < rect.bottom; j += 35) {
+            // Небольшое случайное смещение
+            int offsetX = rand() % 6 - 3;
+            int offsetY = rand() % 6 - 3;
+            
+            // Выбираем случайный цвет из массива
+            COLORREF color = colors[rand() % 3];
+            
+            DrawFlower(hdc, i + offsetX, j + offsetY, color);
+        }
+    }
+}
+
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     static HBRUSH hYellowBrush = CreateSolidBrush(RGB(255, 255, 150));
     static HBRUSH hGreenBrush = CreateSolidBrush(RGB(0, 180, 0));
-    static HBRUSH hLightBlueBrush = CreateSolidBrush(RGB(200, 230, 255)); // Светло-голубой цвет
+    static HBRUSH hLightBlueBrush = CreateSolidBrush(RGB(200, 230, 255));
     static WNDPROC oldButtonProc = NULL;
 
     switch (msg) {
@@ -290,7 +349,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         // Кнопки подсказок справа от подсказок
         for (int i = 0; i < WORDS_COUNT; ++i) {
             hHintButtons[i] = CreateWindowW(L"BUTTON", L"Подсказка", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | BS_OWNERDRAW,
-                180, 560 + i * 50, 80, 25, hwnd, (HMENU)(100 + i), NULL, NULL);
+                180, 560 + i * 50, 80, 25, hwnd, (HMENU)(INT_PTR)(100 + i), NULL, NULL);
         }
 
         wordFound.resize(WORDS_COUNT, false);
@@ -364,10 +423,32 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     case WM_PAINT: {
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint(hwnd, &ps);
-        RECT rc;
-        GetClientRect(hwnd, &rc);
-        rc.left += 20; rc.top += 20; rc.right -= 20; rc.bottom = 400;
+        
+        // Получаем размеры клиентской области
+        RECT clientRect;
+        GetClientRect(hwnd, &clientRect);
+        
+        // Определяем области для декоративного фона
+        RECT leftArea = {0, 0, 20, clientRect.bottom};
+        RECT rightArea = {clientRect.right - 20, 0, clientRect.right, clientRect.bottom};
+        RECT bottomArea = {20, 400, clientRect.right - 20, clientRect.bottom};
+        
+        // Заполняем фоновым цветом
+        HBRUSH hBackgroundBrush = CreateSolidBrush(RGB(240, 240, 255));
+        FillRect(hdc, &leftArea, hBackgroundBrush);
+        FillRect(hdc, &rightArea, hBackgroundBrush);
+        FillRect(hdc, &bottomArea, hBackgroundBrush);
+        DeleteObject(hBackgroundBrush);
+        
+        // Рисуем декоративный фон
+        DrawDecorativeBackground(hdc, leftArea);
+        DrawDecorativeBackground(hdc, rightArea);
+        DrawDecorativeBackground(hdc, bottomArea);
+        
+        // Рисуем игровое поле
+        RECT rc = {20, 20, clientRect.right - 20, 400};
         DrawField(hdc, rc);
+        
         EndPaint(hwnd, &ps);
         break;
     }
