@@ -274,8 +274,8 @@ void DrawFlower(HDC hdc, int x, int y, COLORREF color) {
     Ellipse(hdc, x - petalSize/2, y - petalSize, x + petalSize/2, y + petalSize); // вертикальный
 
     // Рисуем центр цветка
-    HBRUSH hCenterBrush = CreateSolidBrush(RGB(std::min<int>(GetRValue(color) + 60, 255), 
-                                               std::min<int>(GetGValue(color) + 60, 255), 
+    HBRUSH hCenterBrush = CreateSolidBrush(RGB(std::min<int>(GetRValue(color) + 60, 255),
+                                               std::min<int>(GetGValue(color) + 60, 255),
                                                std::min<int>(GetBValue(color) + 60, 255)));
     SelectObject(hdc, hCenterBrush);
     Ellipse(hdc, x - petalSize/2, y - petalSize/2, x + petalSize/2, y + petalSize/2);
@@ -528,13 +528,23 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
         wc.hInstance = hInstance;
         wc.lpszClassName = CLASS_NAME;
         wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+        
+        // Загружаем большую иконку
+        wc.hIcon = (HICON)LoadImage(
+            hInstance,
+            MAKEINTRESOURCE(1),
+            IMAGE_ICON,
+            64,  // Ширина
+            64,  // Высота
+            LR_DEFAULTCOLOR
+        );
 
         RegisterClassW(&wc);
 
         HWND hwnd = CreateWindowExW(
             0, CLASS_NAME, L"Словесный лабиринт",
             WS_OVERLAPPEDWINDOW ^ WS_THICKFRAME,
-            100, 100, 450, 800,  // Уменьшаем ширину окна
+            100, 100, 450, 800,
             NULL, NULL, hInstance, NULL
         );
 
