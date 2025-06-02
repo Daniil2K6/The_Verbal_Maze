@@ -7,4 +7,4 @@ if %errorlevel% equ 0 (
 ) else (
     echo Ошибка компиляции!
     pause
-) 
+)

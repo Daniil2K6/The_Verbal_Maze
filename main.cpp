@@ -4,93 +4,298 @@
 #include <ctime>
 #include <cstdlib>
 #include <algorithm>
+#include <fstream>
+#include <locale>
+#include <codecvt>
 
-#define FIELD_SIZE 5
+#define FIELD_SIZE 7
 #define WORDS_COUNT 3
 
-// Список слов для игры (можно расширить)
-const char* WORDS[] = { "КОТ", "ДОМ", "ЛЕС", "МОРЕ", "САД", "НОС", "СОН", "ЛУК", "РОТ", "СУД" };
-const int WORDS_TOTAL = sizeof(WORDS) / sizeof(WORDS[0]);
+// Пути к файлам
+const wchar_t* WORDS_FILE = L"list/words.txt";
+const wchar_t* POINTS_FILE = L"list/point.txt";
 
-TCHAR field[FIELD_SIZE][FIELD_SIZE + 1]; // +1 для '\0'
-std::vector<std::string> hiddenWords;
+std::vector<std::wstring> allWords;
+int playerPoints = 0; // Текущие очки игрока
+
+wchar_t field[FIELD_SIZE][FIELD_SIZE + 1]; // +1 для '\0'
+std::vector<std::wstring> hiddenWords;
+std::vector<std::vector<bool>> revealedLetters; // Массив для хранения открытых букв
+std::vector<bool> wordFound; // Массив для отслеживания найденных слов
 HWND hEdits[WORDS_COUNT];
+HWND hHintButtons[WORDS_COUNT]; // Массив кнопок подсказок
 HWND hButton;
 HWND hStaticResult;
+HWND hStaticHint;
+HWND hStaticPoints;
+
+// Функция для загрузки очков из файла
+void LoadPoints() {
+    std::ifstream fin(POINTS_FILE);
+    if (fin) {
+        fin >> playerPoints;
+        fin.close();
+    } else {
+        playerPoints = 0;
+    }
+}
+
+// Функция для сохранения очков в файл
+void SavePoints() {
+    std::ofstream fout(POINTS_FILE);
+    if (fout) {
+        fout << playerPoints;
+        fout.close();
+    }
+}
+
+// Функция для обновления отображения очков
+void UpdatePointsDisplay(HWND hwnd) {
+    wchar_t pointsText[64];
+    swprintf(pointsText, 64, L"Очки: %d", playerPoints);
+    SetWindowTextW(hStaticPoints, pointsText);
+    // Устанавливаем зеленый цвет для текста очков
+    SetWindowLongW(hStaticPoints, GWL_STYLE, GetWindowLongW(hStaticPoints, GWL_STYLE) | SS_NOTIFY);
+    SendMessageW(hStaticPoints, WM_SETTEXT, 0, (LPARAM)pointsText);
+    SendMessageW(hStaticPoints, WM_CTLCOLORSTATIC, 0, (LPARAM)CreateSolidBrush(RGB(0, 180, 0)));
+}
+
+void ToUpper(std::wstring& s) {
+    for (auto& c : s) {
+        if (c >= L'а' && c <= L'я') c -= 32;
+        if (c >= L'a' && c <= L'z') c -= 32;
+    }
+}
+
+void LoadWordsFromFile(const wchar_t* filename) {
+    allWords.clear();
+    std::ifstream fin(filename);
+    if (!fin) {
+        MessageBoxW(NULL, L"Не удалось открыть файл words.txt", L"Ошибка", MB_ICONERROR);
+        exit(1);
+    }
+    std::string line;
+    std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>> conv;
+    while (std::getline(fin, line)) {
+        std::wstring word = conv.from_bytes(line);
+        ToUpper(word);
+        word.erase(std::remove_if(word.begin(), word.end(), [](wchar_t c) { return c == L'\r' || c == L'\n' || c == L' '; }), word.end());
+        if (word.length() == 5 || word.length() == 6) {
+            allWords.push_back(word);
+        }
+    }
+    if (allWords.empty()) {
+        MessageBoxW(NULL, L"В файле words.txt нет слов длиной 5-6 букв!", L"Ошибка", MB_ICONERROR);
+        exit(1);
+    }
+}
 
 void GenerateField() {
-    // Заполняем поле случайными буквами
-    for (int i = 0; i < FIELD_SIZE; ++i) {
-        for (int j = 0; j < FIELD_SIZE; ++j) {
-            field[i][j] = L'А' + rand() % 32; // Русские буквы А-Я (без Ё)
+    try {
+        // Загружаем слова из файла
+        LoadWordsFromFile(WORDS_FILE);
+        
+        // Заполняем поле случайными буквами
+        for (int i = 0; i < FIELD_SIZE; ++i) {
+            for (int j = 0; j < FIELD_SIZE; ++j) {
+                field[i][j] = L'А' + rand() % 32; // Русские буквы А-Я (без Ё)
+            }
+            field[i][FIELD_SIZE] = 0;
         }
-        field[i][FIELD_SIZE] = 0;
-    }
-    // Выбираем случайные слова и размещаем их
-    hiddenWords.clear();
-    std::vector<int> used;
-    while (hiddenWords.size() < WORDS_COUNT) {
-        int idx = rand() % WORDS_TOTAL;
-        if (std::find(used.begin(), used.end(), idx) == used.end()) {
-            hiddenWords.push_back(WORDS[idx]);
-            used.push_back(idx);
-        }
-    }
-    // Вставляем слова в поле (по горизонтали или вертикали)
-    for (int w = 0; w < WORDS_COUNT; ++w) {
-        std::string word = hiddenWords[w];
-        int len = word.length();
-        bool placed = false;
-        for (int attempt = 0; attempt < 100 && !placed; ++attempt) {
-            int dir = rand() % 2; // 0 - горизонталь, 1 - вертикаль
-            int x = rand() % FIELD_SIZE;
-            int y = rand() % FIELD_SIZE;
-            if (dir == 0 && y + len <= FIELD_SIZE) { // горизонталь
-                for (int i = 0; i < len; ++i)
-                    field[x][y + i] = word[i];
-                placed = true;
-            } else if (dir == 1 && x + len <= FIELD_SIZE) { // вертикаль
-                for (int i = 0; i < len; ++i)
-                    field[x + i][y] = word[i];
-                placed = true;
+        
+        // Маска занятых клеток
+        bool used[FIELD_SIZE][FIELD_SIZE] = {};
+        // Выбираем 3 случайных уникальных индекса
+        hiddenWords.clear();
+        revealedLetters.clear(); // Очищаем массив открытых букв
+        std::vector<int> indices;
+        while (indices.size() < WORDS_COUNT) {
+            int idx = rand() % allWords.size();
+            if (std::find(indices.begin(), indices.end(), idx) == indices.end()) {
+                indices.push_back(idx);
             }
         }
+        
+        for (int i = 0; i < WORDS_COUNT; ++i) {
+            hiddenWords.push_back(allWords[indices[i]]);
+            revealedLetters.push_back(std::vector<bool>(hiddenWords[i].length(), false));
+        }
+        
+        // Вставляем слова в поле (по горизонтали или вертикали)
+        bool allPlaced = true;
+        for (int w = 0; w < WORDS_COUNT; ++w) {
+            std::wstring word = hiddenWords[w];
+            int len = word.length();
+            bool placed = false;
+            for (int attempt = 0; attempt < 10000 && !placed; ++attempt) {
+                int dir = rand() % 2; // 0 - горизонталь, 1 - вертикаль
+                int x = rand() % FIELD_SIZE;
+                int y = rand() % FIELD_SIZE;
+                bool can_place = true;
+                if (dir == 0 && y + len <= FIELD_SIZE) { // горизонталь
+                    for (int i = 0; i < len; ++i) {
+                        wchar_t cell = field[x][y + i];
+                        if (used[x][y + i] && cell != word[i]) { // если уже занято и буква не совпадает
+                            can_place = false;
+                            break;
+                        }
+                    }
+                    if (can_place) {
+                        for (int i = 0; i < len; ++i) {
+                            field[x][y + i] = word[i];
+                            used[x][y + i] = true;
+                        }
+                        placed = true;
+                    }
+                } else if (dir == 1 && x + len <= FIELD_SIZE) { // вертикаль
+                    for (int i = 0; i < len; ++i) {
+                        wchar_t cell = field[x + i][y];
+                        if (used[x + i][y] && cell != word[i]) {
+                            can_place = false;
+                            break;
+                        }
+                    }
+                    if (can_place) {
+                        for (int i = 0; i < len; ++i) {
+                            field[x + i][y] = word[i];
+                            used[x + i][y] = true;
+                        }
+                        placed = true;
+                    }
+                }
+            }
+            if (!placed) {
+                allPlaced = false;
+                GenerateField(); // Пробуем сгенерировать поле заново
+                return;
+            }
+        }
+    } catch (...) {
+        exit(1);
     }
 }
 
 void DrawField(HDC hdc, RECT& rc) {
     int cellSize = std::min((rc.right - rc.left) / FIELD_SIZE, (rc.bottom - rc.top) / FIELD_SIZE);
+    
+    // Создаем кисть для фона игрового поля
+    HBRUSH hBackgroundBrush = CreateSolidBrush(RGB(240, 240, 255));
+    RECT fieldRect = {rc.left - 10, rc.top - 10, 
+                     rc.left + cellSize * FIELD_SIZE + 10, 
+                     rc.top + cellSize * FIELD_SIZE + 10};
+    FillRect(hdc, &fieldRect, hBackgroundBrush);
+    DeleteObject(hBackgroundBrush);
+
+    // Рисуем рамку вокруг игрового поля
+    HPEN hBorderPen = CreatePen(PS_SOLID, 2, RGB(100, 100, 150));
+    HPEN hOldPen = (HPEN)SelectObject(hdc, hBorderPen);
+    Rectangle(hdc, fieldRect.left, fieldRect.top, fieldRect.right, fieldRect.bottom);
+    SelectObject(hdc, hOldPen);
+    DeleteObject(hBorderPen);
+
     HFONT hFont = CreateFontW(cellSize / 2, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, RUSSIAN_CHARSET,
         OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_DONTCARE, L"Arial");
     HFONT hOldFont = (HFONT)SelectObject(hdc, hFont);
 
+    // Создаем кисть для ячеек
+    HBRUSH hCellBrush = CreateSolidBrush(RGB(255, 255, 255));
+    HPEN hCellPen = CreatePen(PS_SOLID, 1, RGB(150, 150, 200));
+    SelectObject(hdc, hCellPen);
+
     for (int i = 0; i < FIELD_SIZE; ++i) {
         for (int j = 0; j < FIELD_SIZE; ++j) {
             RECT cell = { rc.left + j * cellSize, rc.top + i * cellSize,
-                          rc.left + (j + 1) * cellSize, rc.top + (i + 1) * cellSize };
+                         rc.left + (j + 1) * cellSize, rc.top + (i + 1) * cellSize };
+            
+            // Заполняем ячейку белым цветом
+            FillRect(hdc, &cell, hCellBrush);
+            // Рисуем границы ячейки
             Rectangle(hdc, cell.left, cell.top, cell.right, cell.bottom);
-            TCHAR ch[2] = { field[i][j], 0 };
-            DrawText(hdc, ch, 1, &cell, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+            
+            // Рисуем букву
+            wchar_t ch[2] = { field[i][j], 0 };
+            SetBkMode(hdc, TRANSPARENT);
+            DrawTextW(hdc, ch, 1, &cell, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
         }
     }
+
     SelectObject(hdc, hOldFont);
     DeleteObject(hFont);
+    DeleteObject(hCellBrush);
+    DeleteObject(hCellPen);
+}
+
+void UpdateHint() {
+    std::wstring hint;
+    for (size_t i = 0; i < hiddenWords.size(); ++i) {
+        if (i > 0) hint += L"\n\n\n";  // Добавляем больше пространства между словами
+        hint += L"Слово " + std::to_wstring(i + 1) + L": ";
+        for (size_t j = 0; j < hiddenWords[i].length(); ++j) {
+            if (revealedLetters[i][j] || wordFound[i]) {
+                hint += hiddenWords[i][j];
+            } else {
+                hint += L'_';
+            }
+            hint += L' ';
+        }
+    }
+    SetWindowTextW(hStaticHint, hint.c_str());
+}
+
+// Функция для проверки введенного слова
+bool CheckWord(const std::wstring& word, size_t& foundIndex) {
+    for (size_t i = 0; i < hiddenWords.size(); ++i) {
+        if (hiddenWords[i] == word) {
+            foundIndex = i;
+            return true;
+        }
+    }
+    return false;
 }
 
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    static HBRUSH hYellowBrush = CreateSolidBrush(RGB(255, 255, 150));
+    static HBRUSH hGreenBrush = CreateSolidBrush(RGB(0, 180, 0));
+    static HBRUSH hLightBlueBrush = CreateSolidBrush(RGB(200, 230, 255)); // Светло-голубой цвет
+    static WNDPROC oldButtonProc = NULL;
+
     switch (msg) {
     case WM_CREATE: {
         srand((unsigned)time(0));
+        LoadPoints();
         GenerateField();
+        
         // Создаем поля для ввода
         for (int i = 0; i < WORDS_COUNT; ++i) {
             hEdits[i] = CreateWindowW(L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL,
-                20, 320 + i * 30, 120, 25, hwnd, NULL, NULL, NULL);
+                20, 420 + i * 40, 120, 25, hwnd, NULL, NULL, NULL);
         }
-        hButton = CreateWindowW(L"BUTTON", L"Проверить", WS_CHILD | WS_VISIBLE,
-            160, 320, 100, 30, hwnd, (HMENU)1, NULL, NULL);
+
+        // Кнопка "Проверить" справа от полей ввода
+        hButton = CreateWindowW(L"BUTTON", L"Проверить", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | BS_OWNERDRAW,
+            160, 420, 100, 30, hwnd, (HMENU)1, NULL, NULL);
+
+        // Счетчик очков рядом с кнопкой "Проверить"
+        hStaticPoints = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE,
+            280, 420, 100, 30, hwnd, NULL, NULL, NULL);
+
+        // Результат проверки
         hStaticResult = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE,
-            20, 420, 300, 30, hwnd, NULL, NULL, NULL);
+            20, 540, 300, 30, hwnd, NULL, NULL, NULL);
+
+        // Подсказки
+        hStaticHint = CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE,
+            20, 570, 150, 180, hwnd, NULL, NULL, NULL);
+
+        // Кнопки подсказок справа от подсказок
+        for (int i = 0; i < WORDS_COUNT; ++i) {
+            hHintButtons[i] = CreateWindowW(L"BUTTON", L"Подсказка", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON | BS_OWNERDRAW,
+                180, 560 + i * 50, 80, 25, hwnd, (HMENU)(100 + i), NULL, NULL);
+        }
+
+        wordFound.resize(WORDS_COUNT, false);
+        UpdateHint();
+        UpdatePointsDisplay(hwnd);
         break;
     }
     case WM_COMMAND:
@@ -100,21 +305,60 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
                 wchar_t buf[32];
                 GetWindowTextW(hEdits[i], buf, 32);
                 std::wstring ws(buf);
-                std::string s(ws.begin(), ws.end());
                 // Приводим к верхнему регистру
-                std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) {
-                    return (c >= L'а' && c <= L'я') ? c - 32 : c;
-                });
-                for (auto& c : s) if (c >= 'a' && c <= 'z') c -= 32; // латиница в верхний
-                if (std::find(hiddenWords.begin(), hiddenWords.end(), s) != hiddenWords.end())
+                for (auto& c : ws) {
+                    if (c >= L'а' && c <= L'я') c -= 32;
+                    if (c >= L'a' && c <= L'z') c -= 32;
+                }
+                size_t foundIndex;
+                if (CheckWord(ws, foundIndex)) {
                     ++correct;
+                    wordFound[foundIndex] = true;
+                }
             }
             wchar_t res[128];
-            if (correct == WORDS_COUNT)
+            if (correct == WORDS_COUNT) {
                 wsprintf(res, L"Поздравляем! Все слова найдены!");
-            else
+                SetWindowTextW(hStaticResult, res);
+                // Начисляем 5 очков за прохождение уровня
+                playerPoints += 5;
+                SavePoints();
+                UpdatePointsDisplay(hwnd);
+                // Генерируем новое поле и слова
+                GenerateField();
+                // Сбрасываем найденные слова
+                wordFound.assign(WORDS_COUNT, false);
+                // Обновляем подсказку
+                UpdateHint();
+                // Очищаем поля ввода
+                for (int i = 0; i < WORDS_COUNT; ++i) {
+                    SetWindowTextW(hEdits[i], L"");
+                }
+                // Перерисовываем поле
+                InvalidateRect(hwnd, NULL, TRUE);
+            } else {
                 wsprintf(res, L"Найдено %d из %d слов.", correct, WORDS_COUNT);
-            SetWindowText(hStaticResult, res);
+                SetWindowTextW(hStaticResult, res);
+            }
+        } else if (LOWORD(wParam) >= 100 && LOWORD(wParam) < 100 + WORDS_COUNT) { // Кнопки подсказок
+            int wordIndex = LOWORD(wParam) - 100;
+            if (!wordFound[wordIndex]) { // Если слово еще не найдено
+                // Находим первую неоткрытую букву в выбранном слове
+                bool found = false;
+                for (size_t j = 0; j < hiddenWords[wordIndex].length() && !found; ++j) {
+                    if (!revealedLetters[wordIndex][j]) {
+                        revealedLetters[wordIndex][j] = true;
+                        found = true;
+                        // Списываем очко только если у игрока есть очки
+                        if (playerPoints > 0) {
+                            playerPoints--;
+                            SavePoints();
+                            UpdatePointsDisplay(hwnd);
+                        }
+                    }
+                }
+                UpdateHint();
+            }
         }
         break;
     case WM_PAINT: {
@@ -122,45 +366,117 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         HDC hdc = BeginPaint(hwnd, &ps);
         RECT rc;
         GetClientRect(hwnd, &rc);
-        rc.left += 20; rc.top += 20; rc.right -= 20; rc.bottom = 300;
+        rc.left += 20; rc.top += 20; rc.right -= 20; rc.bottom = 400;
         DrawField(hdc, rc);
         EndPaint(hwnd, &ps);
         break;
     }
+    case WM_DRAWITEM: {
+        LPDRAWITEMSTRUCT lpDIS = (LPDRAWITEMSTRUCT)lParam;
+        if (lpDIS->hwndItem == hButton) {
+            // Рисуем желтый фон кнопки "Проверить"
+            FillRect(lpDIS->hDC, &lpDIS->rcItem, hYellowBrush);
+            
+            // Рисуем текст кнопки
+            SetBkMode(lpDIS->hDC, TRANSPARENT);
+            RECT textRect = lpDIS->rcItem;
+            wchar_t buttonText[32];
+            GetWindowTextW(lpDIS->hwndItem, buttonText, 32);
+            DrawTextW(lpDIS->hDC, buttonText, -1, &textRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+
+            // Рисуем рамку кнопки
+            if (lpDIS->itemState & ODS_SELECTED) {
+                DrawEdge(lpDIS->hDC, &lpDIS->rcItem, EDGE_SUNKEN, BF_RECT);
+            } else {
+                DrawEdge(lpDIS->hDC, &lpDIS->rcItem, EDGE_RAISED, BF_RECT);
+            }
+            return TRUE;
+        }
+        // Обработка кнопок подсказок
+        for (int i = 0; i < WORDS_COUNT; ++i) {
+            if (lpDIS->hwndItem == hHintButtons[i]) {
+                // Рисуем голубой фон кнопки подсказки
+                FillRect(lpDIS->hDC, &lpDIS->rcItem, hLightBlueBrush);
+                
+                // Рисуем текст кнопки
+                SetBkMode(lpDIS->hDC, TRANSPARENT);
+                RECT textRect = lpDIS->rcItem;
+                wchar_t buttonText[32];
+                GetWindowTextW(lpDIS->hwndItem, buttonText, 32);
+                DrawTextW(lpDIS->hDC, buttonText, -1, &textRect, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+
+                // Рисуем рамку кнопки
+                if (lpDIS->itemState & ODS_SELECTED) {
+                    DrawEdge(lpDIS->hDC, &lpDIS->rcItem, EDGE_SUNKEN, BF_RECT);
+                } else {
+                    DrawEdge(lpDIS->hDC, &lpDIS->rcItem, EDGE_RAISED, BF_RECT);
+                }
+                return TRUE;
+            }
+        }
+        break;
+    }
+    case WM_CTLCOLORSTATIC: {
+        HDC hdcStatic = (HDC)wParam;
+        HWND hwndStatic = (HWND)lParam;
+        if (hwndStatic == hStaticPoints) {
+            SetTextColor(hdcStatic, RGB(0, 180, 0));
+            SetBkMode(hdcStatic, TRANSPARENT);
+            return (LRESULT)GetStockObject(NULL_BRUSH);
+        }
+        return DefWindowProcW(hwnd, msg, wParam, lParam);
+    }
     case WM_DESTROY:
+        DeleteObject(hYellowBrush);
+        DeleteObject(hGreenBrush);
+        DeleteObject(hLightBlueBrush);
         PostQuitMessage(0);
+        SavePoints();
         break;
     default:
-        return DefWindowProc(hwnd, msg, wParam, lParam);
+        return DefWindowProcW(hwnd, msg, wParam, lParam);
     }
     return 0;
 }
 
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
-    const wchar_t CLASS_NAME[] = L"WordMazeWindow";
-    WNDCLASSW wc = {};
-    wc.lpfnWndProc = WndProc;
-    wc.hInstance = hInstance;
-    wc.lpszClassName = CLASS_NAME;
-    wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+    try {
+        const wchar_t CLASS_NAME[] = L"WordMazeWindow";
+        WNDCLASSW wc = {};
+        wc.lpfnWndProc = WndProc;
+        wc.hInstance = hInstance;
+        wc.lpszClassName = CLASS_NAME;
+        wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
 
-    RegisterClassW(&wc);
+        RegisterClassW(&wc);
 
-    HWND hwnd = CreateWindowExW(
-        0, CLASS_NAME, L"Словесный лабиринт",
-        WS_OVERLAPPEDWINDOW ^ WS_THICKFRAME,
-        CW_USEDEFAULT, CW_USEDEFAULT, 400, 500,
-        NULL, NULL, hInstance, NULL
-    );
+        HWND hwnd = CreateWindowExW(
+            0, CLASS_NAME, L"Словесный лабиринт",
+            WS_OVERLAPPEDWINDOW ^ WS_THICKFRAME,
+            100, 100, 450, 800,  // Уменьшаем ширину окна
+            NULL, NULL, hInstance, NULL
+        );
 
-    if (hwnd == NULL) return 0;
+        if (hwnd == NULL) return 0;
 
-    ShowWindow(hwnd, nCmdShow);
+        ShowWindow(hwnd, nCmdShow);
 
-    MSG msg = {};
-    while (GetMessage(&msg, NULL, 0, 0)) {
-        TranslateMessage(&msg);
-        DispatchMessage(&msg);
+        MSG msg = {};
+        while (GetMessageW(&msg, NULL, 0, 0)) {
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+        return 0;
+    } catch (const std::exception& e) {
+        std::wstring err = L"std::exception: ";
+        std::string what_str = e.what();
+        err += std::wstring(what_str.begin(), what_str.end());
+        MessageBoxW(NULL, err.c_str(), L"Ошибка", MB_ICONERROR);
+        return 1;
+    } catch (...) {
+        MessageBoxW(NULL, L"Неизвестная ошибка в wWinMain", L"Ошибка", MB_ICONERROR);
+        return 1;
     }
-    return 0;
 }
+
+
