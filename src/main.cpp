@@ -12,8 +12,8 @@
 #define WORDS_COUNT 3
 
 // Пути к файлам
-const wchar_t* WORDS_FILE = L"list/words.txt";
-const wchar_t* POINTS_FILE = L"list/point.txt";
+const wchar_t* WORDS_FILE = L"data/words.txt";
+const wchar_t* POINTS_FILE = L"data/point.txt";
 
 std::vector<std::wstring> allWords;
 int playerPoints = 0; // Текущие очки игрока
