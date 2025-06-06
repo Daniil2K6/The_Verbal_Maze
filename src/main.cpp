@@ -366,6 +366,35 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     }
     case WM_COMMAND:
         if (LOWORD(wParam) == 1) { // Кнопка "Проверить"
+            // Собираем введенные слова для проверки дубликатов
+            std::vector<std::wstring> inputWords;
+            bool hasDuplicates = false;
+            
+            // Сначала собираем все введенные слова и проверяем на дубликаты
+            for (int i = 0; i < WORDS_COUNT; ++i) {
+                wchar_t buf[32];
+                GetWindowTextW(hEdits[i], buf, 32);
+                std::wstring ws(buf);
+                // Приводим к верхнему регистру
+                for (auto& c : ws) {
+                    if (c >= L'а' && c <= L'я') c -= 32;
+                    if (c >= L'a' && c <= L'z') c -= 32;
+                    if (c == L'ё') c = L'Ё';
+                }
+                
+                // Проверяем, не было ли уже такого слова
+                if (!ws.empty() && std::find(inputWords.begin(), inputWords.end(), ws) != inputWords.end()) {
+                    hasDuplicates = true;
+                    break;
+                }
+                inputWords.push_back(ws);
+            }
+            
+            if (hasDuplicates) {
+                SetWindowTextW(hStaticResult, L"Ошибка: введены одинаковые слова!");
+                break;
+            }
+            
             int correct = 0;
             for (int i = 0; i < WORDS_COUNT; ++i) {
                 wchar_t buf[32];
