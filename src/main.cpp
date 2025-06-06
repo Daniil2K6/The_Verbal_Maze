@@ -15,6 +15,11 @@
 const wchar_t* WORDS_FILE = L"data/words.txt";
 const wchar_t* POINTS_FILE = L"data/point.txt";
 
+// Прототип функции подкласса
+LRESULT CALLBACK EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
+// Оригинальная процедура окна поля ввода
+WNDPROC originalEditProc = nullptr;
+
 std::vector<std::wstring> allWords;
 int playerPoints = 0; // Текущие очки игрока
 
@@ -335,6 +340,13 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         for (int i = 0; i < WORDS_COUNT; ++i) {
             hEdits[i] = CreateWindowW(L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL,
                 20, 420 + i * 40, 120, 25, hwnd, NULL, NULL, NULL);
+            
+            // Подключаем процедуру подкласса к каждому полю ввода
+            if (i == 0) { // Сохраняем оригинальную процедуру окна только один раз
+                originalEditProc = (WNDPROC)SetWindowLongPtrW(hEdits[i], GWLP_WNDPROC, (LONG_PTR)EditSubclassProc);
+            } else {
+                SetWindowLongPtrW(hEdits[i], GWLP_WNDPROC, (LONG_PTR)EditSubclassProc);
+            }
         }
 
         // Кнопка "Проверить" справа от полей ввода
@@ -556,6 +568,35 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         return DefWindowProcW(hwnd, msg, wParam, lParam);
     }
     return 0;
+}
+
+// Процедура подкласса для полей ввода
+LRESULT CALLBACK EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    if (msg == WM_KEYDOWN) {
+        HWND parentHwnd = GetParent(hwnd);
+        switch (wParam) {
+        case VK_RETURN: // При нажатии Enter
+            SendMessageW(parentHwnd, WM_COMMAND, 1, 0); // Симулируем нажатие кнопки "Проверить"
+            return 0;
+        case VK_UP: // Стрелка вверх
+            for (int i = 0; i < WORDS_COUNT; ++i) {
+                if (hwnd == hEdits[i] && i > 0) {
+                    SetFocus(hEdits[i - 1]);
+                    return 0;
+                }
+            }
+            break;
+        case VK_DOWN: // Стрелка вниз
+            for (int i = 0; i < WORDS_COUNT; ++i) {
+                if (hwnd == hEdits[i] && i < WORDS_COUNT - 1) {
+                    SetFocus(hEdits[i + 1]);
+                    return 0;
+                }
+            }
+            break;
+        }
+    }
+    return CallWindowProcW(originalEditProc, hwnd, msg, wParam, lParam);
 }
 
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
