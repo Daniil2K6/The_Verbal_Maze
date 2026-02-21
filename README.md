@@ -13,7 +13,7 @@
     ```
     git clone https://github.com/Daniil2K6/The_Verbal_Maze.git
     ```
-2. Перейдите в папку проекта и соберите проект (уточните, если есть Makefile или используете CMake):
+2. Перейдите в папку проекта и соберите проект:
     ```
     cd The_Verbal_Maze
     g++ main.cpp -o maze
